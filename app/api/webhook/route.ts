@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import crypto from "crypto";
-import type { WebhookEvent } from "@/types";
+import { prisma } from "@/lib/db";
 
-// In-memory store for received events (replace with DB in production)
-const eventLog: WebhookEvent[] = [];
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function verifySignature(payload: string, signature: string, secret: string): boolean {
   const hmac = crypto.createHmac("sha256", secret);
@@ -59,19 +59,27 @@ export async function POST(request: NextRequest) {
       ((payload.repository as Record<string, unknown>)?.full_name as string) ?? ""
     );
 
-    const entry: WebhookEvent = {
-      action,
-      pr_number: prNumber,
-      title: prTitle,
-      sender: senderLogin,
-      repo: repoName,
-      received_at: new Date().toISOString(),
-    };
-
-    eventLog.unshift(entry);
-    if (eventLog.length > 100) eventLog.pop(); // cap at 100
+    await prisma.webhookEvent.create({
+      data: {
+        event,
+        action,
+        prNumber,
+        title: prTitle,
+        sender: senderLogin,
+        repo: repoName,
+      },
+    });
 
     console.log(`[Webhook] PR #${prNumber} (${action}) by ${senderLogin} in ${repoName}`);
+
+    // Trigger Knowledge Bridge background task async
+    if (action === "opened" || action === "synchronize") {
+      fetch(`http://localhost:3000/api/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prNumber }),
+      }).catch(e => console.warn("Failed to trigger analysis", e));
+    }
 
     return Response.json({
       received: true,
@@ -88,5 +96,20 @@ export async function POST(request: NextRequest) {
 
 // GET — return recent event log (for dashboard display)
 export async function GET() {
-  return Response.json(eventLog);
+  const events = await prisma.webhookEvent.findMany({
+    orderBy: { receivedAt: "desc" },
+    take: 100,
+  });
+  
+  // Format to match expected frontend interface if needed
+  const formattedEvents = events.map(e => ({
+    action: e.action,
+    pr_number: e.prNumber,
+    title: e.title,
+    sender: e.sender,
+    repo: e.repo,
+    received_at: e.receivedAt.toISOString(),
+  }));
+
+  return Response.json(formattedEvents);
 }

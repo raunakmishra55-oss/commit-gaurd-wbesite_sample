@@ -1,5 +1,5 @@
-import { listPRs, getPRFiles } from "@/lib/github";
-import { computeEffort, computeImpact } from "@/lib/impact";
+import { listPRs, getPRFiles, getPRDiff } from "@/lib/github";
+import { computeEffort, computeImpactAsync } from "@/lib/impact";
 import type { MatrixPoint } from "@/types";
 
 export async function GET() {
@@ -9,11 +9,14 @@ export async function GET() {
     const points: MatrixPoint[] = await Promise.all(
       prs.slice(0, 30).map(async (pr) => {
         let filenames: string[] = [];
+        let diff = "";
         try {
           const files = await getPRFiles(pr.number);
           filenames = files.map((f) => f.filename);
+          diff = await getPRDiff(pr.number);
         } catch {
           // Some PRs might not have file data
+          console.warn(`Failed to fetch diff/files for PR ${pr.number}`);
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,7 +28,7 @@ export async function GET() {
           prNumber: pr.number,
           title: pr.title,
           effort: computeEffort(additions, deletions),
-          impact: computeImpact(filenames),
+          impact: await computeImpactAsync(diff, filenames),
           additions,
           deletions,
           files: filenames,

@@ -1,0 +1,31 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  event       String   // push, pull_request, etc
+  action      String   // opened, closed, synchronize, ignored
+  prNumber    Int?
+  title       String?
+  sender      String
+  repo        String
+  receivedAt  DateTime @default(now())
+}
+
+model ExpertHistory {
+  id          String   @id @default(cuid())
+  login       String
+  domain      String   // e.g. .css, .ts, database
+  commits     Int
+  updatedAt   DateTime @updatedAt
+
+  @@unique([login, domain])
+}

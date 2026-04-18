@@ -113,6 +113,29 @@ export function getFileImpact(filename: string): {
   return { score: DEFAULT_SCORE, level: "medium", label: "General" };
 }
 
+export async function computeImpactAsync(diffText: string, filenames: string[]): Promise<number> {
+  const ML_ENGINE_URL = process.env.ML_ENGINE_URL || "http://localhost:8000";
+  
+  if (diffText && diffText.length > 5) {
+    try {
+      const res = await fetch(`${ML_ENGINE_URL}/api/classify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diff: diffText })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // High risk = 90, Low = 20.
+        return data.risk_level === "High" ? 90 : 20;
+      }
+    } catch (e) {
+      console.warn("ML classification failed, falling back to heuristics");
+    }
+  }
+
+  return computeImpact(filenames);
+}
+
 export function computeImpact(filenames: string[]): number {
   if (filenames.length === 0) return 0;
   const scores = filenames.map((f) => getFileImpact(f).score);

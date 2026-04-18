@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       }
       const id = `doc-${Date.now()}`;
       const result = await embedDocument(id, text, metadata ?? {});
-      return Response.json({ success: true, id: result.id, embeddingDim: result.embedding.length });
+      return Response.json({ success: true, id: result.id, embeddingDim: result.dim });
     }
 
     if (action === "query") {

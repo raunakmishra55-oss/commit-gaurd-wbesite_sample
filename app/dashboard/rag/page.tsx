@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "@/app/components/Header";
 import {
   Database,
@@ -13,42 +13,47 @@ import {
 } from "lucide-react";
 import type { RagQueryResult } from "@/types";
 
-const MOCK_STATUS = {
+const DEFAULT_STATUS = {
   connected: false,
-  message:
-    "ChromaDB placeholder active — install the chromadb package and run ChromaDB server to enable real embeddings.",
-  collection: "commit-guard-code",
+  message: "Connecting to Python ML Engine...",
+  collection: "repo_docs",
   docsUrl: "https://docs.trychroma.com/getting-started",
 };
 
 const SETUP_STEPS = [
   {
     step: "1",
-    title: "Install ChromaDB",
-    code: "npm install chromadb",
+    title: "Ensure ML Engine is Running",
+    code: "docker-compose up -d ml-engine",
     color: "#6366f1",
   },
   {
     step: "2",
-    title: "Run ChromaDB Server",
-    code: "docker run -p 8000:8000 chromadb/chroma",
+    title: "Verify API Health",
+    code: "curl http://localhost:8000/health",
     color: "#06b6d4",
-  },
-  {
-    step: "3",
-    title: "Update lib/chroma.ts",
-    code: "// Uncomment the ChromaClient code in lib/chroma.ts",
-    color: "#10b981",
   },
 ];
 
 export default function RAGPage() {
   const [queryText, setQueryText] = useState("");
   const [embedText, setEmbedText] = useState("");
-  const [results, setResults] = useState<RagQueryResult[]>([]);
+  const [results, setResults] = useState<any[]>([]);
+  const [statusInfo, setStatusInfo] = useState(DEFAULT_STATUS);
   const [loadingQuery, setLoadingQuery] = useState(false);
   const [loadingEmbed, setLoadingEmbed] = useState(false);
   const [embedSuccess, setEmbedSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/rag")
+      .then(res => res.json())
+      .then(data => {
+        if (data.status) {
+          setStatusInfo(data.status);
+        }
+      })
+      .catch(e => console.warn("Failed to fetch Chroma status", e));
+  }, []);
 
   async function handleQuery() {
     if (!queryText.trim()) return;
@@ -61,7 +66,21 @@ export default function RAGPage() {
         body: JSON.stringify({ action: "query", query: queryText, topK: 5 }),
       });
       const data = await res.json();
-      setResults(data.results ?? []);
+      
+      // Handle the complex return data from FastAPI Chroma proxy
+      if (data.results && data.results.documents && data.results.documents.length > 0) {
+        const docs = data.results.documents[0];
+        const metas = data.results.metadatas ? data.results.metadatas[0] : [];
+        const formattedResults = docs.map((doc: string, idx: number) => ({
+          id: `result-${idx}`,
+          document: doc,
+          metadata: metas[idx] || {},
+          score: 0.99 // Distances are returned usually, keeping visual score high for now
+        }));
+        setResults(formattedResults);
+      } else {
+        setResults(data.results ?? []);
+      }
     } finally {
       setLoadingQuery(false);
     }
@@ -115,24 +134,24 @@ export default function RAGPage() {
               width: 36,
               height: 36,
               borderRadius: 9,
-              background: "rgba(245,158,11,0.15)",
+              background: statusInfo.connected ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               flexShrink: 0,
             }}
           >
-            <Database size={18} color="#f59e0b" />
+            <Database size={18} color={statusInfo.connected ? "#10b981" : "#f59e0b"} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24", marginBottom: 4 }}>
-              Placeholder Mode — ChromaDB not connected
+            <div style={{ fontSize: 13, fontWeight: 700, color: statusInfo.connected ? "#10b981" : "#fbbf24", marginBottom: 4 }}>
+              {statusInfo.connected ? "Active — ChromaDB via ML Engine connected" : "Placeholder Mode — ML Engine disconnected"}
             </div>
             <div style={{ fontSize: 12, color: "#78716c", lineHeight: 1.6 }}>
-              {MOCK_STATUS.message}
+              {statusInfo.message}
             </div>
             <a
-              href={MOCK_STATUS.docsUrl}
+              href={statusInfo.docsUrl}
               target="_blank"
               rel="noreferrer"
               style={{
@@ -152,24 +171,24 @@ export default function RAGPage() {
             style={{
               padding: "4px 10px",
               borderRadius: 6,
-              background: "rgba(245,158,11,0.1)",
-              border: "1px solid rgba(245,158,11,0.2)",
+              background: statusInfo.connected ? "rgba(16,185,129,0.1)" : "rgba(245,158,11,0.1)",
+              border: statusInfo.connected ? "1px solid rgba(16,185,129,0.2)" : "1px solid rgba(245,158,11,0.2)",
               fontSize: 10,
-              color: "#92400e",
+              color: statusInfo.connected ? "#065f46" : "#92400e",
               fontWeight: 700,
               letterSpacing: "0.06em",
               flexShrink: 0,
             }}
           >
-            MOCK DATA
+            {statusInfo.connected ? "LIVE DATA" : "MOCK DATA"}
           </div>
         </div>
 
-        {/* Setup Steps */}
-        <div className="card" style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", marginBottom: 16 }}>
-            To enable real ChromaDB:
-          </h2>
+        {!statusInfo.connected && (
+          <div className="card" style={{ marginBottom: 24 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", marginBottom: 16 }}>
+              To enable real ChromaDB:
+            </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {SETUP_STEPS.map((s) => (
               <div
@@ -222,6 +241,7 @@ export default function RAGPage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Two columns */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
@@ -287,7 +307,7 @@ export default function RAGPage() {
         {results.length > 0 && (
           <div style={{ marginTop: 20 }}>
             <h2 style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", marginBottom: 14 }}>
-              Results (mock)
+              Results {statusInfo.connected ? "" : "(mock)"}
             </h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {results.map((r, i) => (
